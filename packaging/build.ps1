@@ -6,7 +6,7 @@
 Set-Location $PSScriptRoot
 ..\.venv-build\Scripts\python.exe make_icon.py
 ..\.venv-build\Scripts\pyinstaller SemSearch.spec --noconfirm --distpath dist --workpath build
-Copy-Item 使用說明.txt dist\SemSearch\ -Force
+Copy-Item 使用說明.txt, README.txt dist\SemSearch\ -Force
 if (Test-Path dist\SemSearch.zip) { Remove-Item dist\SemSearch.zip }
 # tar -a 產生的 zip 幾乎沒壓縮（889MB），用 Python 的 deflate 可以壓到約 335MB
 ..\.venv-build\Scripts\python.exe -c "import shutil; shutil.make_archive('dist/SemSearch', 'zip', 'dist', 'SemSearch')"

@@ -78,7 +78,7 @@ def index_one(store, emb, job: Job) -> tuple[int, str | None, bool]:
         chunks = extract(job.path, job.kind)
         vecs = embed_chunks(emb, job.path, chunks)
     except SkipFile as e:
-        err, skipped = f"略過：{e}", True
+        err, skipped = f"skipped: {e}", True
         chunks, vecs = [], np.zeros((0, emb.dim), np.float32)
     except Exception as e:
         err = f"{type(e).__name__}: {e}"

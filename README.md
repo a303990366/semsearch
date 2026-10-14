@@ -41,6 +41,7 @@ Under the hood it uses Google DeepMind's [EmbeddingGemma 2](https://huggingface.
 - **Points to the right spot**: PDFs show the page number; audio and video show the timestamp
 - **Scanned PDFs**: pages without extractable text are rendered and embedded as images
 - **Hybrid ranking**: semantic similarity first, with a small boost for exact keyword matches
+- **English & 繁體中文 UI**: switch any time in Settings
 - **Progress and notifications**: shows the remaining time while indexing, and reports how many files succeeded, failed or were skipped when it finishes
 
 Supported formats: txt / md / source code / html, PDF, docx, jpg / png / heic / webp…, mp3 / wav / m4a…, mp4 / mov / mkv…
@@ -49,12 +50,12 @@ Supported formats: txt / md / source code / html, PDF, docx, jpg / png / heic / 
   <img src="docs/search-screenshot.png" width="420" alt="Finding a screenshot by the error it shows" />
   <img src="docs/search-audio.png" width="420" alt="Finding a voice recording by what was said" />
   <br/>
-  <sub>Left: a screenshot found by the error it shows. Right: a voice recording found by what was said. The UI is currently in Traditional Chinese.</sub>
+  <sub>Left: a screenshot found by the error it shows. Right: a voice recording found by what was said. The UI comes in English (default) and Traditional Chinese.</sub>
 </p>
 
 ## Try it (Windows)
 
-Download `SemSearch.zip` from Releases, unzip it, and double-click `SemSearch.exe`. On first launch it downloads the model (about 1.5 GB). A step-by-step guide in Traditional Chinese is in [packaging/使用說明.txt](packaging/使用說明.txt).
+Download `SemSearch.zip` from Releases, unzip it, and double-click `SemSearch.exe`. On first launch it downloads the model (about 1.5 GB). Step-by-step guides: [English](packaging/README.txt) · [繁體中文](packaging/使用說明.txt).
 
 The packaged build runs on the CPU, so it works on any Windows x64 machine, but each photo takes 2–5 seconds. For GPU acceleration, run from source as described below.
 

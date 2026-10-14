@@ -21,6 +21,7 @@ class Settings:
     index_audio: bool = True
     index_video: bool = True
     autostart: bool = False
+    language: str = "en"        # en / zh-TW
     max_results: int = 12
 
     @classmethod

@@ -5,6 +5,7 @@ import json
 from dataclasses import dataclass
 
 from .extract import fmt_t
+from .i18n import tr
 
 FTS_BONUS = 0.04   # 純 RRF 會讓 "dog" 這種短字的字面命中壓過真正最像的圖片
 
@@ -22,7 +23,7 @@ class Result:
     @property
     def where(self) -> str:
         if "page" in self.locator:
-            return f"第 {self.locator['page']} 頁"
+            return tr("page", n=self.locator["page"])
         if "t" in self.locator:
             return fmt_t(self.locator["t"])
         return ""

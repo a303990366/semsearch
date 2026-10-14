@@ -111,7 +111,7 @@ def _pdf(path: Path) -> list[Chunk]:
     chunks, scanned = [], 0
     with pymupdf.open(path) as doc:
         if doc.needs_pass and not doc.authenticate(""):
-            raise SkipFile("PDF 有密碼保護")
+            raise SkipFile("password-protected PDF")
         for i, page in enumerate(doc, start=1):
             text = page.get_text()
             if len(text.strip()) >= MIN_PAGE_TEXT:

@@ -26,13 +26,14 @@ from PySide6.QtGui import (
 )
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFileIconProvider, QHBoxLayout,
+    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFileIconProvider, QHBoxLayout,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPushButton, QSizePolicy, QSystemTrayIcon,
     QToolButton,
     QVBoxLayout, QWidget,
 )
 
-from . import config
+from . import config, i18n
+from .i18n import fmt_duration, kind_label, tr
 from .settings import Settings
 
 log = logging.getLogger("semsearch")
@@ -57,6 +58,7 @@ class Bridge(QObject):
     hotkey = Signal()
     fs_changed = Signal()
     notify = Signal(str, str)
+    progress = Signal(str)      # 索引進度（頻繁，不寫記錄檔）
 
 
 class IndexerThread(threading.Thread):
@@ -78,13 +80,13 @@ class IndexerThread(threading.Thread):
         self.trigger.set()
 
     def run(self):
-        self.bridge.status.emit("模型載入中…（第一次需要下載約 1.5GB）")
+        self.bridge.status.emit(tr("model_loading"))
         try:
             from .embedder import Embedder
             self.emb = Embedder()
         except Exception as e:
             log.exception("model load failed")
-            self.bridge.status.emit(f"模型載入失敗：{e}")
+            self.bridge.status.emit(tr("model_failed", e=e))
             return
         self.ready.set()
         self.bridge.model_ready.emit()
@@ -94,7 +96,7 @@ class IndexerThread(threading.Thread):
             store = Store()
         except Exception as e:
             log.exception("open index failed")
-            self.bridge.status.emit(f"索引檔開啟失敗：{e}")
+            self.bridge.status.emit(tr("index_open_failed", e=e))
             return
         self.trigger.set()
         while True:
@@ -105,16 +107,16 @@ class IndexerThread(threading.Thread):
                 self._run_once(store)
             except Exception:
                 log.exception("index pass failed")
-                self.bridge.status.emit("索引發生錯誤，詳見 app.log")
+                self.bridge.status.emit(tr("index_error"))
 
     def _run_once(self, store):
         from .indexer import index_one, plan
         s = self.get_settings()
         announce, self.announce = self.announce, False
         if not s.folders:
-            self.bridge.status.emit("尚未設定資料夾 — 點右下角 ⚙ 加入")
+            self.bridge.status.emit(tr("no_folders"))
             return
-        self.bridge.status.emit("掃描檔案中…")
+        self.bridge.status.emit(tr("scanning"))
         todo, removed = plan(store, s.roots, s.skip_kinds, prune_all=True, excludes=s.excludes)
         # 暫時不存在的資料夾（例如外接硬碟沒插）不要清掉它的索引
         missing = [f.rstrip("\\/") + "\\" for f in s.folders if not Path(f).is_dir()]
@@ -128,13 +130,11 @@ class IndexerThread(threading.Thread):
         for j in todo:
             left[j.kind] += _units(j)
         if todo and announce:
-            kinds = Counter(KIND_LABEL.get(j.kind, j.kind) for j in todo)
-            detail = "、".join(f"{k} {n:,}" for k, n in kinds.most_common())
+            kinds = Counter(kind_label(j.kind) for j in todo)
+            detail = tr("list_sep").join(f"{k} {n:,}" for k, n in kinds.most_common())
             eta = self._eta(left)
-            self.bridge.notify.emit(
-                "開始建立索引",
-                f"共 {len(todo):,} 個檔案（{detail}）\n預估 {fmt_duration(eta)}，完成後會再通知你。"
-                "\n文字類會先處理，處理完就能先搜尋。")
+            self.bridge.notify.emit(tr("notify_start_title"), tr(
+                "notify_start_body", total=f"{len(todo):,}", detail=detail, eta=fmt_duration(eta)))
             log.info("index start: %d files (%s), eta %s", len(todo), detail, fmt_duration(eta))
 
         t0 = time.time()
@@ -146,9 +146,9 @@ class IndexerThread(threading.Thread):
                 return
             remaining = self._eta(left)
             left[job.kind] -= _units(job)
-            self.bridge.status.emit(
-                f"索引中 {i:,}/{len(todo):,}（{(i - 1) * 100 // len(todo)}%）· 剩約 {fmt_duration(remaining)}"
-                f" · {job.path.name}")
+            self.bridge.progress.emit(tr(
+                "progress", i=f"{i:,}", total=f"{len(todo):,}", pct=(i - 1) * 100 // len(todo),
+                eta=fmt_duration(remaining), name=job.path.name))
             t = time.time()
             n, err, was_skipped = index_one(store, self.emb, job)
             self._learn(job.kind, (time.time() - t) / _units(job))
@@ -169,16 +169,16 @@ class IndexerThread(threading.Thread):
         n_files = store.db.execute("SELECT COUNT(*) FROM files WHERE error IS NULL").fetchone()[0]
         took = time.time() - t0
         if todo:
-            summary = f"處理 {len(todo):,} 份：成功 {ok:,}、失敗 {failed:,}" + (f"、略過 {skipped:,}" if skipped else "")
+            summary = tr("summary", total=f"{len(todo):,}", ok=f"{ok:,}", failed=f"{failed:,}") + (
+                tr("summary_skipped", skipped=f"{skipped:,}") if skipped else "")
             log.info("index done in %s: %s; removed %d", fmt_duration(took), summary, len(removed))
             if announce or failed:
-                self.bridge.notify.emit(
-                    "索引完成",
-                    f"{summary}\n花費 {fmt_duration(took)}，目前可搜尋 {n_files:,} 個檔案。"
-                    + ("\n失敗清單：系統匣右鍵 →「開啟記錄檔」" if failed else ""))
-            self.bridge.status.emit(f"已索引 {n_files:,} 個檔案（本次 {summary}）")
+                self.bridge.notify.emit(tr("notify_done_title"), tr(
+                    "notify_done_body", summary=summary, took=fmt_duration(took), n=f"{n_files:,}")
+                    + (tr("notify_done_failed") if failed else ""))
+            self.bridge.status.emit(tr("status_indexed_run", n=f"{n_files:,}", summary=summary))
         else:
-            self.bridge.status.emit(f"已索引 {n_files:,} 個檔案")
+            self.bridge.status.emit(tr("status_indexed", n=f"{n_files:,}"))
 
     # 估時：先用各類型的經驗值，跑過之後換成實測平均
     def _learn(self, kind: str, sec: float):
@@ -288,18 +288,6 @@ def _force_foreground(hwnd: int):
             user32.AttachThreadInput(fg_tid, me, False)
 
 
-def fmt_duration(sec: float) -> str:
-    sec = int(sec)
-    if sec < 60:
-        return f"{max(sec, 1)} 秒"
-    if sec < 3600:
-        return f"{sec // 60} 分鐘"
-    h, m = sec // 3600, sec % 3600 // 60
-    if h < 48:
-        return f"{h} 小時 {m} 分" if m else f"{h} 小時"
-    return f"{h // 24} 天 {h % 24} 小時"
-
-
 # ---------------------------------------------------------------- 開檔
 
 def open_file(r):
@@ -347,6 +335,9 @@ QCheckBox { color: #e6e6e6; spacing: 8px; }
 QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #5a5c66; border-radius: 3px;
                        background: #2a2b30; }
 QCheckBox::indicator:checked { background: #4c6ef5; border-color: #4c6ef5; }
+QComboBox { background: #2a2b30; color: #e6e6e6; border: 1px solid #3a3b40; border-radius: 6px; padding: 4px 10px;
+            min-width: 120px; }
+QComboBox QAbstractItemView { background: #26272b; color: #e6e6e6; selection-background-color: #3d4fa3; }
 QDialogButtonBox QPushButton { min-width: 72px; padding: 6px 14px; }
 QMenu { background: #26272b; color: #e6e6e6; border: 1px solid #3a3b40; padding: 4px; }
 QMenu::item { padding: 6px 22px; border-radius: 4px; }
@@ -374,8 +365,6 @@ def dark_palette() -> QPalette:
     pal.setColor(QPalette.Disabled, QPalette.Text, QColor("#6b6d75"))
     pal.setColor(QPalette.Disabled, QPalette.ButtonText, QColor("#6b6d75"))
     return pal
-
-KIND_LABEL = {"text": "文字", "pdf": "PDF", "docx": "Word", "image": "圖片", "audio": "音訊", "video": "影片"}
 
 
 def make_app_icon() -> QIcon:
@@ -417,7 +406,7 @@ class ResultRow(QWidget):
         name = QLabel(Path(r.path).name)
         name.setObjectName("name")
         top.addWidget(name)
-        badge_text = KIND_LABEL.get(r.kind, r.kind) + (f" · {r.where}" if r.where else "")
+        badge_text = kind_label(r.kind) + (f" · {r.where}" if r.where else "")
         badge = QLabel(badge_text)
         badge.setObjectName("badge")
         top.addWidget(badge)
@@ -436,9 +425,9 @@ class ResultRow(QWidget):
             mid.addWidget(sn)
         lay.addLayout(mid, 1)
 
-        b_open = QPushButton("開啟")
+        b_open = QPushButton(tr("btn_open"))
         b_open.clicked.connect(on_open)
-        b_dir = QPushButton("所在位置")
+        b_dir = QPushButton(tr("btn_reveal"))
         b_dir.clicked.connect(on_reveal)
         lay.addWidget(b_open)
         lay.addWidget(b_dir)
@@ -465,7 +454,7 @@ class SearchWindow(QWidget):
         lay.setContentsMargins(12, 12, 12, 8)
 
         self.input = QLineEdit()
-        self.input.setPlaceholderText("用自己的話描述要找的檔案…  例如：海灘上的狗、租約裡寵物的條款")
+        self.input.setPlaceholderText(tr("placeholder"))
         self.input.textChanged.connect(self._on_text)
         self.input.installEventFilter(self)
         lay.addWidget(self.input)
@@ -479,12 +468,12 @@ class SearchWindow(QWidget):
         self.status = QLabel("")
         self.status.setObjectName("status")
         bottom.addWidget(self.status, 1)
-        hint = QLabel("Enter 開啟 · Ctrl+Enter 所在位置 · Esc 關閉")
+        hint = QLabel(tr("key_hints"))
         hint.setObjectName("status")
         bottom.addWidget(hint)
         gear = QToolButton()
         gear.setText("⚙")
-        gear.setToolTip("設定")
+        gear.setToolTip(tr("settings_tip"))
         gear.clicked.connect(ctrl.open_settings)
         bottom.addWidget(gear)
         lay.addLayout(bottom)
@@ -546,7 +535,7 @@ class SearchWindow(QWidget):
             self.list.clear()
             return
         if not self.ctrl.indexer.ready.is_set():
-            self.status.setText("模型還在載入，載好後會自動顯示結果…")
+            self.status.setText(tr("model_still_loading"))
         self.ctrl.searcher.submit(self.qid, text)
 
     def show_results(self, qid: int, results: list):
@@ -596,7 +585,7 @@ class SearchWindow(QWidget):
             try:
                 open_file(self.results[i])
             except OSError as e:
-                self.ctrl.tray.showMessage("無法開啟", str(e))
+                self.ctrl.tray.showMessage(tr("cannot_open"), str(e))
 
     def reveal_index(self, i: int):
         if 0 <= i < len(self.results):
@@ -618,9 +607,9 @@ class FolderList(QWidget):
         self.list.addItems(folders)
         lay.addWidget(self.list, 1)
         row = QHBoxLayout()
-        add = QPushButton("新增資料夾…")
+        add = QPushButton(tr("add_folder"))
         add.clicked.connect(self._add)
-        rm = QPushButton("移除選取")
+        rm = QPushButton(tr("remove_selected"))
         rm.clicked.connect(lambda: [self.list.takeItem(self.list.row(i)) for i in self.list.selectedItems()])
         row.addWidget(add)
         row.addWidget(rm)
@@ -642,39 +631,48 @@ class SettingsDialog(QDialog):
     def __init__(self, s: Settings, stats_text: str = ""):
         super().__init__(None, Qt.WindowStaysOnTopHint)
         self.setObjectName("settings")
-        self.setWindowTitle("SemSearch 設定")
+        self.setWindowTitle(tr("settings_title"))
         self.setWindowIcon(make_app_icon())
         self.resize(620, 600)
         lay = QVBoxLayout(self)
         lay.setSpacing(8)
 
-        lay.addWidget(_heading("要索引的資料夾（含子資料夾）"))
-        self.folders = FolderList(s.folders, "選擇要索引的資料夾")
+        lay.addWidget(_heading(tr("h_folders")))
+        self.folders = FolderList(s.folders, tr("pick_folder"))
         lay.addWidget(self.folders, 3)
 
-        lay.addWidget(_heading("排除的資料夾"))
-        hint = QLabel("這些資料夾和底下的子資料夾都不索引，例如程式碼專案、備份、遊戲安裝檔。")
+        lay.addWidget(_heading(tr("h_excludes")))
+        hint = QLabel(tr("excludes_hint"))
         hint.setObjectName("hint")
         hint.setWordWrap(True)
         lay.addWidget(hint)
-        self.excludes = FolderList(s.excludes, "選擇要排除的資料夾")
+        self.excludes = FolderList(s.excludes, tr("pick_exclude"))
         lay.addWidget(self.excludes, 2)
 
-        lay.addWidget(_heading("選項"))
-        self.audio = QCheckBox("索引音訊（mp3 / wav / m4a…）")
+        lay.addWidget(_heading(tr("h_options")))
+        lang = QHBoxLayout()
+        lang.addWidget(QLabel(tr("language")))
+        self.language = QComboBox()
+        for code, name in i18n.LANGUAGES.items():
+            self.language.addItem(name, code)
+        self.language.setCurrentIndex(max(0, self.language.findData(s.language)))
+        lang.addWidget(self.language)
+        lang.addStretch()
+        lay.addLayout(lang)
+        self.audio = QCheckBox(tr("opt_audio"))
         self.audio.setChecked(s.index_audio)
-        self.video = QCheckBox("索引影片（每 5 秒一張畫面 + 音軌，最耗時）")
+        self.video = QCheckBox(tr("opt_video"))
         self.video.setChecked(s.index_video)
-        self.autostart = QCheckBox("開機時自動啟動")
+        self.autostart = QCheckBox(tr("opt_autostart"))
         self.autostart.setChecked(s.autostart)
         for w in (self.audio, self.video, self.autostart):
             lay.addWidget(w)
 
         hk = QHBoxLayout()
-        hk.addWidget(QLabel("叫出搜尋框的快捷鍵："))
+        hk.addWidget(QLabel(tr("hotkey_label")))
         self.hotkey = QLineEdit(s.hotkey)
         self.hotkey.setObjectName("field")
-        self.hotkey.setPlaceholderText("例如 ctrl+alt+space、alt+shift+f")
+        self.hotkey.setPlaceholderText(tr("hotkey_placeholder"))
         hk.addWidget(self.hotkey, 1)
         lay.addLayout(hk)
 
@@ -685,8 +683,8 @@ class SettingsDialog(QDialog):
             lay.addWidget(st)
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btns.button(QDialogButtonBox.Ok).setText("儲存")
-        btns.button(QDialogButtonBox.Cancel).setText("取消")
+        btns.button(QDialogButtonBox.Ok).setText(tr("save"))
+        btns.button(QDialogButtonBox.Cancel).setText(tr("cancel"))
         btns.accepted.connect(self._accept)
         btns.rejected.connect(self.reject)
         lay.addWidget(btns)
@@ -705,6 +703,7 @@ class SettingsDialog(QDialog):
             index_audio=self.audio.isChecked(),
             index_video=self.video.isChecked(),
             autostart=self.autostart.isChecked(),
+            language=self.language.currentData(),
             max_results=old.max_results,
         )
 
@@ -721,6 +720,7 @@ class Controller:
     def __init__(self, app: QApplication):
         self.app = app
         self.settings = Settings.load()
+        i18n.set_language(self.settings.language)
         self.dialog_open = False
         self.bridge = Bridge()
         self.indexer = IndexerThread(self.bridge, lambda: self.settings)
@@ -733,30 +733,32 @@ class Controller:
         self.watch_debounce.timeout.connect(lambda: self.indexer.rescan())
 
         self.bridge.status.connect(self._on_status)
-        self.bridge.results.connect(self.window.show_results)
-        self.bridge.hotkey.connect(self.window.toggle)
+        self.bridge.progress.connect(self._on_progress)
+        self.bridge.results.connect(lambda qid, res: self.window.show_results(qid, res))
+        self.bridge.hotkey.connect(lambda: self.window.toggle())
         self.bridge.fs_changed.connect(self.watch_debounce.start)
         self.bridge.notify.connect(lambda title, msg: self.tray.showMessage(
             title, msg, QSystemTrayIcon.Information, 15000))
 
         self.tray = QSystemTrayIcon(make_app_icon())
         menu = QMenu()
-        self.act_search = QAction("搜尋")
-        self.act_search.triggered.connect(self.window.summon)
-        act_settings = QAction("設定…")
-        act_settings.triggered.connect(self.open_settings)
-        act_rescan = QAction("立即重新掃描")
-        act_rescan.triggered.connect(lambda: self.indexer.rescan(restart=True))
-        act_log = QAction("開啟記錄檔")
-        act_log.triggered.connect(lambda: os.startfile(config.DATA_DIR / "app.log"))
-        act_quit = QAction("結束")
-        act_quit.triggered.connect(self.quit)
-        self._actions = [self.act_search, act_settings, act_rescan, act_log, act_quit]
-        for a in self._actions[:-1]:
+        self.act_search = QAction()
+        self.act_search.triggered.connect(lambda: self.window.summon())
+        self.act_settings = QAction()
+        self.act_settings.triggered.connect(self.open_settings)
+        self.act_rescan = QAction()
+        self.act_rescan.triggered.connect(lambda: self.indexer.rescan(restart=True))
+        self.act_log = QAction()
+        self.act_log.triggered.connect(lambda: os.startfile(config.DATA_DIR / "app.log"))
+        self.act_quit = QAction()
+        self.act_quit.triggered.connect(self.quit)
+        for a in (self.act_search, self.act_settings, self.act_rescan, self.act_log):
             menu.addAction(a)
         menu.addSeparator()
-        menu.addAction(act_quit)
+        menu.addAction(self.act_quit)
         self.tray.setContextMenu(menu)
+        self._menu = menu
+        self._retranslate_menu()
         self.tray.activated.connect(
             lambda reason: reason == QSystemTrayIcon.Trigger and self.window.toggle())
         self.tray.show()
@@ -769,13 +771,32 @@ class Controller:
         if not self.settings.folders:
             QTimer.singleShot(300, self.open_settings)
         else:
-            self.tray.showMessage("SemSearch 已啟動", f"按 {self.settings.hotkey} 開始搜尋")
+            self.tray.showMessage(tr("started_title"), tr("started_body", hotkey=self.settings.hotkey))
+
+    def _retranslate_menu(self):
+        self.act_search.setText(f"{tr('menu_search')}\t{self.settings.hotkey}")
+        self.act_settings.setText(tr("menu_settings"))
+        self.act_rescan.setText(tr("menu_rescan"))
+        self.act_log.setText(tr("menu_log"))
+        self.act_quit.setText(tr("menu_quit"))
 
     def _on_status(self, text: str):
-        if not text.startswith("索引中"):
-            log.info("status: %s", text)
+        log.info("status: %s", text)
+        self._on_progress(text)
+
+    def _on_progress(self, text: str):
         self.window.status.setText(text)
         self.tray.setToolTip(f"SemSearch — {text}"[:120])
+
+    def _set_language(self, lang: str):
+        """切換語言：重建搜尋框、更新選單，狀態列文字靠一次重掃重新產生。"""
+        i18n.set_language(lang)
+        old = self.window
+        self.window = SearchWindow(self)
+        old.hide()
+        old.deleteLater()
+        self._retranslate_menu()
+        self.indexer.rescan()
 
     def _apply_hotkey(self):
         if self.hotkey_thread:
@@ -783,10 +804,9 @@ class Controller:
         self.hotkey_thread = HotkeyThread(self.settings.hotkey, self.bridge.hotkey.emit)
         self.hotkey_thread.start()
         self.hotkey_thread.started_evt.wait(2)
-        self.act_search.setText(f"搜尋\t{self.settings.hotkey}")
+        self._retranslate_menu()
         if not self.hotkey_thread.ok:
-            self.tray.showMessage("快捷鍵無法註冊",
-                                  f"{self.settings.hotkey} 可能被其他程式佔用，請到設定換一組。")
+            self.tray.showMessage(tr("hotkey_fail_title"), tr("hotkey_fail_body", hotkey=self.settings.hotkey))
 
     def _apply_watchers(self):
         from watchdog.events import FileSystemEventHandler
@@ -822,7 +842,7 @@ class Controller:
             db.close()
         except sqlite3.Error:
             return ""
-        return f"目前索引：可搜尋 {ok or 0:,} 個檔案，無法處理 {bad or 0:,} 個　·　{self.window.status.text()}"
+        return tr("stats", ok=f"{ok or 0:,}", bad=f"{bad or 0:,}", status=self.window.status.text())
 
     def open_settings(self):
         self.window.hide()
@@ -836,8 +856,11 @@ class Controller:
                              or new.excludes != self.settings.excludes
                              or new.skip_kinds != self.settings.skip_kinds)
             changed_hotkey = new.hotkey != self.settings.hotkey
+            changed_lang = new.language != self.settings.language
             self.settings = new
             new.save()
+            if changed_lang:
+                self._set_language(new.language)
             if changed_hotkey:
                 self._apply_hotkey()
             if changed_index:
