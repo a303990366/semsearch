@@ -1,82 +1,84 @@
 # SemSearch
 
-用自己的話搜尋電腦裡的檔案。照片、PDF、文件、程式碼、錄音、影片都能找，全部在本機執行，不會上傳任何檔案。
+Search the files on your computer by describing them in your own words. Photos, PDFs, documents, code, audio recordings and videos are all searchable. Everything runs locally and no file ever leaves your machine.
 
-- 「海灘上的狗」→ 找到那張照片
-- 「租約裡關於寵物的條款」→ 找到 PDF 的第 2 頁
-- 「付款失敗的截圖」→ 找到錯誤畫面的截圖，截圖裡的文字不用 OCR 也認得
-- 「影片裡有人在講失眠」→ 跳到影片的 00:30
-- 中英文可以互搜
+- "a dog on the beach" → finds the photo
+- "the clause about pets in the lease" → finds page 2 of the PDF
+- "screenshot of the payment failed error" → finds the screenshot; the model reads text inside images, no OCR needed
+- "someone talking about insomnia in a video" → jumps to 00:30 in the video
+- Works across languages: an English query finds Chinese documents, and the other way around
 
-背後用的是 Google DeepMind 的 [EmbeddingGemma 2](https://huggingface.co/google/embeddinggemma-2)（740M 參數，Apache 2.0）。它把文字、圖片、音訊放進同一個向量空間，所以用一句話就能找到意思相近的照片或錄音。
+Under the hood it uses Google DeepMind's [EmbeddingGemma 2](https://huggingface.co/google/embeddinggemma-2) (740M parameters, Apache 2.0). The model puts text, images and audio into a single vector space, so one sentence can match a photo or a recording with a similar meaning.
 
-## 功能
+## Features
 
-- **桌面助手**：常駐在系統匣，按 `Ctrl+Alt+Space` 叫出搜尋框，邊打字邊出結果
-- **直接開檔**：Enter 開啟檔案，Ctrl+Enter 在檔案總管中顯示；裝了 VLC 時，影音會跳到命中的時間點
-- **多個資料夾**：可以設定要索引哪些資料夾，也可以排除子資料夾
-- **自動更新**：資料夾裡的檔案新增、修改或刪除，約 5 秒後自動重新索引
-- **定位到片段**：PDF 會顯示頁碼，影音會顯示時間碼
-- **掃描版 PDF**：抽不到文字的頁面會整頁當成圖片交給模型
-- **混合排序**：以語義相似度為主，關鍵字完全相符時額外加分
+- **Desktop assistant**: lives in the system tray. Press `Ctrl+Alt+Space` to open the search box; results update as you type
+- **Open files directly**: Enter opens the file, Ctrl+Enter shows it in File Explorer. If VLC is installed, audio and video open at the matching timestamp
+- **Multiple folders**: choose which folders to index, and exclude subfolders you don't want
+- **Automatic updates**: files that are added, changed or deleted are re-indexed about 5 seconds later
+- **Points to the right spot**: PDFs show the page number; audio and video show the timestamp
+- **Scanned PDFs**: pages without extractable text are rendered and embedded as images
+- **Hybrid ranking**: semantic similarity first, with a small boost for exact keyword matches
+- **Progress and notifications**: shows the remaining time while indexing, and reports how many files succeeded, failed or were skipped when it finishes
 
-支援的格式：txt / md / 程式碼 / html、PDF、docx、jpg / png / heic / webp…、mp3 / wav / m4a…、mp4 / mov / mkv…
+Supported formats: txt / md / source code / html, PDF, docx, jpg / png / heic / webp…, mp3 / wav / m4a…, mp4 / mov / mkv…
 
-## 下載試用（Windows）
+## Try it (Windows)
 
-到 Releases 下載 `SemSearch.zip`，解壓後雙擊 `SemSearch.exe`。第一次啟動會下載模型，約 1.5GB。詳細步驟見 [packaging/使用說明.txt](packaging/使用說明.txt)。
+Download `SemSearch.zip` from Releases, unzip it, and double-click `SemSearch.exe`. On first launch it downloads the model (about 1.5 GB). A step-by-step guide in Traditional Chinese is in [packaging/使用說明.txt](packaging/使用說明.txt).
 
-打包版只用 CPU 計算，任何 Windows x64 電腦都能跑，但照片每張要 2 到 5 秒。要用 GPU 加速，請照下方說明從原始碼執行。
+The packaged build runs on the CPU, so it works on any Windows x64 machine, but each photo takes 2–5 seconds. For GPU acceleration, run from source as described below.
 
-## 從原始碼執行
+## Run from source
 
-需要 Python 3.12。有 NVIDIA 顯示卡的話建議裝 CUDA 版 PyTorch。
+Requires Python 3.12. If you have an NVIDIA GPU, install the CUDA build of PyTorch.
 
 ```powershell
 uv venv .venv --python 3.12
 uv pip install --python .venv\Scripts\python.exe torch torchvision --index-url https://download.pytorch.org/whl/cu128
 uv pip install --python .venv\Scripts\python.exe -r requirements.txt
 
-# 桌面助手
+# Desktop assistant
 .venv\Scripts\pythonw.exe SemSearch.pyw
 
-# 或用指令列
+# Or use the command line
 .venv\Scripts\python.exe -m semsearch index D:\Photos
-.venv\Scripts\python.exe -m semsearch search "海灘上的狗"
+.venv\Scripts\python.exe -m semsearch search "a dog on the beach"
 ```
 
-在 RTX 4060 上的速度：文字每段 0.05 秒、照片每張 0.15 秒、30 秒音訊 0.15 秒、一次查詢約 0.3 秒。
+Speed on an RTX 4060: 0.05 s per text chunk, 0.15 s per photo, 0.15 s per 30 s of audio, about 0.3 s per query.
 
-## 架構
+## Architecture
 
 ```
 semsearch/
-  app.py       桌面助手：系統匣、全域快捷鍵、搜尋框、設定、檔案監看、背景索引
-  indexer.py   掃描資料夾，找出新增、變更、刪除的檔案（先處理文字，影片最後）
-  extract.py   把檔案切成可嵌入的片段，記下頁碼或時間碼（用 Pillow 和 PyAV 在記憶體內解碼）
-  embedder.py  EmbeddingGemma 2；查詢優先，背景索引會讓路
-  store.py     SQLite：向量以 float16 存成 BLOB，另有 FTS5 全文索引
-  search.py    以語義相似度排序，關鍵字命中加分，每個檔案只取最相關的一段
-  ocr.py       Windows 內建 OCR（目前沒有啟用，模型本身已經讀得懂圖片裡的文字）
+  app.py       Desktop assistant: tray icon, global hotkey, search box, settings, file watcher, background indexing
+  indexer.py   Scans folders and finds new, changed and deleted files (text first, video last)
+  extract.py   Splits files into embeddable chunks and records page numbers or timestamps
+               (decodes in memory with Pillow and PyAV)
+  embedder.py  EmbeddingGemma 2; search queries take priority and background indexing yields to them
+  store.py     SQLite: vectors stored as float16 BLOBs, plus an FTS5 full-text index
+  search.py    Ranks by semantic similarity with a keyword-match boost, keeps the best chunk per file
+  ocr.py       Built-in Windows OCR (not enabled; the model already reads text inside images)
 ```
 
-設定、索引和記錄檔放在 `~/.semsearch/`，模型放在 Hugging Face 的快取資料夾。
+Settings, the index and the log live in `~/.semsearch/`. The model is stored in the Hugging Face cache.
 
-## 打包
+## Packaging
 
 ```powershell
 packaging\build.ps1
 ```
 
-會產生 `packaging/dist/SemSearch/`（CPU 版）和 `SemSearch.zip`。第一次打包前要先建立打包環境，步驟寫在 build.ps1 開頭。
+This produces `packaging/dist/SemSearch/` (CPU build) and `SemSearch.zip`. Before the first build, create the packaging environment; the steps are at the top of `build.ps1`.
 
-## 已知限制
+## Known limitations
 
-- 目前只支援 Windows（全域快捷鍵、開機啟動、檔案總管整合都用到 Windows 的功能）
-- PDF 只顯示頁碼，沒辦法直接跳到那一頁（各家 PDF 閱讀器的參數不一樣）
-- 很多張長得很像的截圖，靠向量可能分不出差別，之後可能加回 OCR 做精確比對
-- `testdata/` 裡沒有附上測試照片和影片（它們來自 Wikimedia Commons，授權要求標示作者），所以 `scripts/smoke_test.py` 需要你自己放幾張照片進去
+- Windows only for now (the global hotkey, autostart and File Explorer integration use Windows APIs)
+- PDFs show the page number but can't open directly at that page, because every PDF viewer takes different arguments
+- With many near-identical screenshots, vectors alone may not tell them apart; OCR may come back for exact matching
+- The test photos and videos are not included in `testdata/` (they come from Wikimedia Commons, whose licenses require attribution), so `scripts/smoke_test.py` needs a few photos of your own
 
-## 授權
+## License
 
-程式碼採用 [MIT](LICENSE) 授權。EmbeddingGemma 2 模型採用 Apache 2.0，第一次執行時會從 Hugging Face 下載，不包含在這個 repo 裡。
+The code is released under the [MIT](LICENSE) license. The EmbeddingGemma 2 model is licensed under Apache 2.0; it is downloaded from Hugging Face on first run and is not part of this repository.
