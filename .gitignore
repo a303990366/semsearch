@@ -1,0 +1,14 @@
+.venv/
+.venv-build/
+__pycache__/
+*.pyc
+.semsearch*/
+packaging/build/
+packaging/dist/
+packaging/*.log
+packaging/semsearch.ico
+
+# 測試照片取自 Wikimedia Commons（CC 授權需標示作者），連同用它們合成的影片一律不進版控
+testdata/IMG_*.jpg
+testdata/clip_01.mp4
+testdata/vlog_02.mp4

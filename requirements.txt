@@ -1,0 +1,15 @@
+# PyTorch 請先從 CUDA 索引安裝：
+#   uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+sentence-transformers>=6.1
+transformers>=5.19
+accelerate
+numpy
+pillow
+pillow-heif
+pymupdf
+python-docx
+soundfile
+av
+huggingface_hub
+PySide6
+watchdog
