@@ -1,6 +1,28 @@
-# SemSearch
+<h1 align="center">🔎 SemSearch</h1>
 
-Search the files on your computer by describing them in your own words. Photos, PDFs, documents, code, audio recordings and videos are all searchable. Everything runs locally and no file ever leaves your machine.
+<p align="center">
+  <b>A lightweight AI file finder for Windows.</b><br/>
+  Describe a file in plain words and find it. SemSearch understands what's <i>inside</i> your photos, PDFs, recordings and videos.<br/>
+  Runs 100% offline on your PC, powered by Google's EmbeddingGemma 2.
+</p>
+
+<p align="center">
+  <a href="https://github.com/a303990366/semsearch/releases/latest"><img src="https://img.shields.io/badge/Download-Windows%20.exe-0078D4?style=for-the-badge&logo=windows&logoColor=white" /></a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D4?style=flat-square&logo=windows" />
+  <img src="https://img.shields.io/badge/100%25-offline-2ea44f?style=flat-square" />
+  <img src="https://img.shields.io/badge/model-EmbeddingGemma%202-4285F4?style=flat-square&logo=google" />
+  <img src="https://img.shields.io/github/v/release/a303990366/semsearch?style=flat-square" />
+  <img src="https://img.shields.io/github/license/a303990366/semsearch?style=flat-square" />
+</p>
+
+<p align="center">
+  <img src="docs/search-lease.png" width="640" alt="Searching 'the clause about pets in the lease' finds the lease and page 2 of a PDF" />
+</p>
+
+Windows Search only matches file names. SemSearch matches **meaning**: press `Ctrl+Alt+Space`, type what you remember, and jump straight to the file, the PDF page or the second of the video where it appears.
 
 - "a dog on the beach" → finds the photo
 - "the clause about pets in the lease" → finds page 2 of the PDF
@@ -22,6 +44,13 @@ Under the hood it uses Google DeepMind's [EmbeddingGemma 2](https://huggingface.
 - **Progress and notifications**: shows the remaining time while indexing, and reports how many files succeeded, failed or were skipped when it finishes
 
 Supported formats: txt / md / source code / html, PDF, docx, jpg / png / heic / webp…, mp3 / wav / m4a…, mp4 / mov / mkv…
+
+<p align="center">
+  <img src="docs/search-screenshot.png" width="420" alt="Finding a screenshot by the error it shows" />
+  <img src="docs/search-audio.png" width="420" alt="Finding a voice recording by what was said" />
+  <br/>
+  <sub>Left: a screenshot found by the error it shows. Right: a voice recording found by what was said. The UI is currently in Traditional Chinese.</sub>
+</p>
 
 ## Try it (Windows)
 
